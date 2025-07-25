@@ -26,6 +26,7 @@ from typing import (
 from urllib.parse import parse_qsl, unquote, urlencode
 
 from multidict import CIMultiDict, CIMultiDictProxy, MultiMapping
+from aiohttp.web_exceptions import HTTPBadRequest
 
 from .hdrs import (
     CONTENT_DISPOSITION,
@@ -318,9 +319,8 @@ class BodyPartReader:
             self._at_eof = True
         if self._at_eof:
             clrf = await self._content.readline()
-            assert (
-                b"\r\n" == clrf
-            ), "reader did not read all the data or it is malformed"
+            if clrf != b"\r\n":
+                raise HTTPBadRequest(reason="Malformed multipart content")
         return chunk
 
     async def _read_chunk_from_length(self, size: int) -> bytes:
@@ -329,6 +329,8 @@ class BodyPartReader:
         assert self._length is not None, "Content-Length required for chunked read"
         chunk_size = min(size, self._length - self._read_bytes)
         chunk = await self._content.read(chunk_size)
+        if self._content.at_eof():
+            self._at_eof = True
         return chunk
 
     async def _read_chunk_from_stream(self, size: int) -> bytes:

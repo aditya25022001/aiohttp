@@ -942,6 +942,45 @@ class TestMultipartReader:
             assert first.at_eof()
             assert not second.at_eof()
 
+    async def test_malformed_incomplete_content_length_raises_httpbadrequest(self) -> None:
+        with Stream(
+            newline.join([
+                b"--:",
+                b"Content-Length: 10",
+                b"",  # end of headers
+                b"short",  # Only 5 bytes instead of 10
+                b"--:--"
+            ])
+        ) as stream:
+            reader = aiohttp.MultipartReader(
+                {CONTENT_TYPE: 'multipart/related;boundary=":"'},
+                stream,
+            )
+            part = await reader.next()
+            assert isinstance(part, aiohttp.BodyPartReader)
+
+            with pytest.raises(aiohttp.web.HTTPBadRequest) as exc_info:
+                await part.read()
+
+            assert "Malformed multipart content" in str(exc_info.value)
+
+    async def test_valid_chunk_read_after_patch(self) -> None:
+        with Stream(
+            newline.join([
+                b"--:",
+                b"Content-Length: 4",
+                b"",
+                b"pass",
+                b"--:--"
+            ])
+        ) as stream:
+            reader = aiohttp.MultipartReader(
+                {CONTENT_TYPE: 'multipart/related;boundary=":"'},
+                stream,
+            )
+            part = await reader.next()
+            data = await part.read()
+            assert data == b"pass"
 
 async def test_writer(writer) -> None:
     assert writer.size == 7
